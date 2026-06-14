@@ -37,7 +37,7 @@ export async function sendToHarlo(
   onboardingContext?: string
 ): Promise<string> {
   const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), 8000); // 8 second timeout
+  const timeout = setTimeout(() => controller.abort(), 15000); // 15s — accounts for mobile latency + CF cold start
 
   const systemPrompt = onboardingContext
     ? `${SYSTEM_PROMPT_V2}\n\nUSER CONTEXT: ${onboardingContext}`
