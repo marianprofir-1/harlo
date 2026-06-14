@@ -1,0 +1,13 @@
+name = "harlo-api"
+main = "worker.ts"
+compatibility_date = "2024-01-01"
+
+[[kv_namespaces]]
+binding = "RATE_LIMIT_KV"
+id = "42cd146da05f4d6ba637eae56e1a8da0"
+
+[vars]
+AI_MODEL = "claude-haiku-4-5-20251001"
+
+# Secrets — set via: wrangler secret put ANTHROPIC_API_KEY
+# wrangler secret put HARLO_HMAC_SECRET
