@@ -44,7 +44,6 @@ export default function PaywallScreen() {
     try {
       const success = await purchasePackage(pkg);
       if (success) {
-        trackEvent('subscription_started');
         router.replace('/(tabs)');
       }
     } catch {
