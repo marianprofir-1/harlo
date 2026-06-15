@@ -14,6 +14,15 @@
         "EXPO_PUBLIC_PROXY_URL": "https://harlo-api.harlo.workers.dev"
       }
     },
+    "preview": {
+      "distribution": "internal",
+      "android": {
+        "buildType": "apk"
+      },
+      "env": {
+        "EXPO_PUBLIC_PROXY_URL": "https://harlo-api.harlo.workers.dev"
+      }
+    },
     "production": {
       "autoIncrement": true,
       "android": {
