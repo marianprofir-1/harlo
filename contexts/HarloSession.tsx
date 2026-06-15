@@ -1,6 +1,9 @@
-import React, { createContext, useContext, useState, useRef, useCallback } from 'react';
+import React, { createContext, useContext, useState, useRef, useCallback, useEffect } from 'react';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { sendToHarlo, HarloAIError, getErrorMessage, AIError } from '../lib/ai';
 import { trackEvent } from '../lib/analytics';
+import { KEYS } from '../lib/storage';
+import { saveSessionMemory } from '../lib/memory';
 
 export type Message = {
   id: string;
@@ -9,44 +12,101 @@ export type Message = {
   timestamp: Date;
 };
 
-export type SessionStatus = 'idle' | 'loading' | 'error' | 'ended';
+export type SessionStatus = 'idle' | 'loading';
 
 interface HarloSessionContextType {
   messages: Message[];
   status: SessionStatus;
   errorMessage: string | null;
   sessionEnded: boolean;
+  hasSessionToday: boolean;
+  continuePromptVisible: boolean;
+  extensionsUsed: number;
+  tomorrowQuestion: string | null;
   sendMessage: (text: string) => Promise<void>;
   clearError: () => void;
-  startNewSession: () => void;
+  onContinue: () => void;
+  onDecline: () => void;
 }
 
 const HarloSessionContext = createContext<HarloSessionContextType | null>(null);
 
-const MAX_MESSAGES_PER_SESSION = 8;
-const SESSION_DURATION_MS = 15 * 60 * 1000;
+// Segment 1: 6 messages → continue prompt
+// Segment 2: 5 more (11 total) → continue prompt
+// Segment 3: 5 more (16 total) → gentle close
+const SEGMENT_1 = 6;
+const SEGMENT_EXTRA = 5;
+
+function getSegmentLimit(extensions: number): number {
+  return SEGMENT_1 + extensions * SEGMENT_EXTRA;
+}
+
+function todayStr(): string {
+  return new Date().toISOString().split('T')[0];
+}
 
 export function HarloSessionProvider({
   children,
   onboardingContext,
+  tomorrowQuestion = null,
+  dayNumber = 1,
 }: {
   children: React.ReactNode;
   onboardingContext?: string;
+  tomorrowQuestion?: string | null;
+  dayNumber?: number;
 }) {
   const [messages, setMessages] = useState<Message[]>([]);
   const [status, setStatus] = useState<SessionStatus>('idle');
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [sessionEnded, setSessionEnded] = useState(false);
+  const [hasSessionToday, setHasSessionToday] = useState(false);
+  const [continuePromptVisible, setContinuePromptVisible] = useState(false);
+  const [extensionsUsed, setExtensionsUsed] = useState(0);
 
-  const messageCount = useRef(0);
-  const sessionStart = useRef(Date.now());
-  const lastSessionEnd = useRef<number | null>(null);
+  // Refs avoid stale closures inside async callbacks
+  const userMessageCount = useRef(0);
+  const extensionsRef = useRef(0);
+  const sessionSaved = useRef(false);
+  const sessionStarted = useRef(false);
+  const userTexts = useRef<string[]>([]); // for memory extraction (max 3)
 
-  const sessionEnded =
-    messageCount.current >= MAX_MESSAGES_PER_SESSION ||
-    Date.now() - sessionStart.current > SESSION_DURATION_MS;
+  useEffect(() => {
+    AsyncStorage.getItem(KEYS.LAST_SESSION_DATE).then(val => {
+      if (val === todayStr()) setHasSessionToday(true);
+    });
+  }, []);
+
+  const doEndSession = useCallback(async () => {
+    if (sessionSaved.current) return;
+    sessionSaved.current = true;
+
+    setSessionEnded(true);
+    setContinuePromptVisible(false);
+    setHasSessionToday(true);
+    trackEvent('session_ended', { messageCount: userMessageCount.current });
+
+    await AsyncStorage.setItem(KEYS.LAST_SESSION_DATE, todayStr());
+
+    if (userTexts.current.length > 0) {
+      await saveSessionMemory({
+        date: todayStr(),
+        dayNumber,
+        moments: userTexts.current,
+      });
+    }
+  }, [dayNumber]);
 
   const sendMessage = useCallback(async (text: string) => {
-    if (sessionEnded || status === 'loading') return;
+    if (sessionEnded || continuePromptVisible || status === 'loading') return;
+
+    // Mark session started on first message — prevents a second session today
+    if (!sessionStarted.current) {
+      sessionStarted.current = true;
+      AsyncStorage.setItem(KEYS.LAST_SESSION_DATE, todayStr());
+      setHasSessionToday(true);
+      trackEvent('chat_session_started');
+    }
 
     const userMessage: Message = {
       id: `user_${Date.now()}`,
@@ -55,14 +115,20 @@ export function HarloSessionProvider({
       timestamp: new Date(),
     };
 
+    // Collect user texts for memory (skip very short replies)
+    if (text.trim().length > 20 && userTexts.current.length < 3) {
+      userTexts.current = [...userTexts.current, text.trim()];
+    }
+
     setMessages(prev => [...prev, userMessage]);
     setStatus('loading');
     setErrorMessage(null);
-    messageCount.current += 1;
+    userMessageCount.current += 1;
 
-    trackEvent('message_sent', { messageNumber: messageCount.current });
+    trackEvent('message_sent', { messageNumber: userMessageCount.current });
 
     try {
+      // messages here is the pre-send list (stale closure is intentional)
       const allMessages = [...messages, userMessage].map(m => ({
         role: m.role,
         content: m.content,
@@ -78,13 +144,19 @@ export function HarloSessionProvider({
       };
 
       setMessages(prev => [...prev, aiMessage]);
-      setStatus(sessionEnded ? 'ended' : 'idle');
+      setStatus('idle');
 
-      if (sessionEnded) {
-        lastSessionEnd.current = Date.now();
-        trackEvent('session_ended', { messageCount: messageCount.current });
+      // Check segment limit using ref (always current, not stale)
+      const ext = extensionsRef.current;
+      const limit = getSegmentLimit(ext);
+
+      if (userMessageCount.current >= limit) {
+        if (ext >= 2) {
+          await doEndSession();
+        } else {
+          setContinuePromptVisible(true);
+        }
       }
-
     } catch (error) {
       if (error instanceof HarloAIError) {
         setErrorMessage(getErrorMessage(error.type as AIError));
@@ -93,20 +165,23 @@ export function HarloSessionProvider({
         setErrorMessage(getErrorMessage('UNKNOWN'));
       }
       setStatus('idle');
-      messageCount.current -= 1;
+      userMessageCount.current -= 1;
     }
-  }, [messages, status, sessionEnded, onboardingContext]);
+  }, [messages, status, sessionEnded, continuePromptVisible, onboardingContext, doEndSession]);
+
+  const onContinue = useCallback(() => {
+    extensionsRef.current += 1;
+    setExtensionsUsed(extensionsRef.current);
+    setContinuePromptVisible(false);
+    trackEvent('session_continued', { extension: extensionsRef.current });
+  }, []);
+
+  const onDecline = useCallback(async () => {
+    setContinuePromptVisible(false);
+    await doEndSession();
+  }, [doEndSession]);
 
   const clearError = useCallback(() => setErrorMessage(null), []);
-
-  const startNewSession = useCallback(() => {
-    if (lastSessionEnd.current && Date.now() - lastSessionEnd.current < 30 * 60 * 1000) return;
-    setMessages([]);
-    setStatus('idle');
-    setErrorMessage(null);
-    messageCount.current = 0;
-    sessionStart.current = Date.now();
-  }, []);
 
   return (
     <HarloSessionContext.Provider value={{
@@ -114,9 +189,14 @@ export function HarloSessionProvider({
       status,
       errorMessage,
       sessionEnded,
+      hasSessionToday,
+      continuePromptVisible,
+      extensionsUsed,
+      tomorrowQuestion,
       sendMessage,
       clearError,
-      startNewSession,
+      onContinue,
+      onDecline,
     }}>
       {children}
     </HarloSessionContext.Provider>

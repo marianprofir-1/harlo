@@ -22,8 +22,16 @@ import {
   type HarloContent,
   type WeeklyTheme as WeeklyThemeData,
 } from '../../lib/content';
+import { getStreak, checkMilestone } from '../../lib/streak';
 import { DailyPrompt } from '../../components/DailyPrompt';
 import { WeeklyTheme } from '../../components/WeeklyTheme';
+
+const MILESTONE_MESSAGES: Record<number, string> = {
+  7:  'Seven days together. That\'s a week of showing up for yourself.',
+  30: 'A full month. You\'ve built something real here.',
+  60: 'Two months. The quiet has changed.',
+  90: 'Three months. Look how far you\'ve come.',
+};
 
 function getGreeting(): string {
   const hour = new Date().getHours();
@@ -42,7 +50,6 @@ async function getDayNumber(): Promise<number> {
     }
     const start = new Date(stored);
     const now = new Date();
-    // Compare calendar days, not milliseconds, to count days correctly
     const startDay = new Date(start.getFullYear(), start.getMonth(), start.getDate());
     const nowDay = new Date(now.getFullYear(), now.getMonth(), now.getDate());
     const diff = Math.floor((nowDay.getTime() - startDay.getTime()) / (1000 * 60 * 60 * 24));
@@ -60,11 +67,21 @@ export default function HomeScreen() {
   const [dayNumber, setDayNumber] = useState(1);
   const [content, setContent] = useState<HarloContent | null>(null);
   const [quickText, setQuickText] = useState('');
+  const [streak, setStreak] = useState(0);
+  const [milestone, setMilestone] = useState<number | null>(null);
   const inputRef = useRef<TextInput>(null);
 
   useEffect(() => {
-    getDayNumber().then(setDayNumber);
-    loadContent().then(setContent);
+    async function load() {
+      const [day, c] = await Promise.all([getDayNumber(), loadContent()]);
+      setDayNumber(day);
+      setContent(c);
+
+      // Streak and milestone (non-blocking)
+      getStreak().then(setStreak);
+      checkMilestone(day).then(setMilestone);
+    }
+    load();
   }, []);
 
   const dailyPromptText = content
@@ -122,6 +139,18 @@ export default function HomeScreen() {
               >
                 Day {dayNumber} of your journey
               </Text>
+              {streak > 1 && (
+                <Text
+                  style={{
+                    color: theme.brandPrimary,
+                    fontSize: 13,
+                    fontWeight: '500',
+                    marginTop: 4,
+                  }}
+                >
+                  {streak} days together
+                </Text>
+              )}
             </View>
             <TouchableOpacity
               onPress={() => router.push('/settings')}
@@ -131,6 +160,38 @@ export default function HomeScreen() {
               <Ionicons name="settings-outline" size={22} color={theme.textMuted} />
             </TouchableOpacity>
           </View>
+
+          {/* Milestone banner */}
+          {milestone && (
+            <View
+              style={{
+                marginHorizontal: 16,
+                marginTop: 8,
+                marginBottom: 4,
+                backgroundColor: theme.brandPrimary,
+                borderRadius: 16,
+                padding: 18,
+                flexDirection: 'row',
+                alignItems: 'center',
+                gap: 12,
+              }}
+            >
+              <View style={{ flex: 1 }}>
+                <Text style={{ color: 'rgba(255,255,255,0.8)', fontSize: 11, fontWeight: '600', letterSpacing: 0.8, textTransform: 'uppercase', marginBottom: 4 }}>
+                  Milestone
+                </Text>
+                <Text style={{ color: '#FFFFFF', fontSize: 15, lineHeight: 22 }}>
+                  {MILESTONE_MESSAGES[milestone] ?? `Day ${milestone}. You kept coming back.`}
+                </Text>
+              </View>
+              <TouchableOpacity
+                onPress={() => setMilestone(null)}
+                hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+              >
+                <Ionicons name="close" size={18} color="rgba(255,255,255,0.7)" />
+              </TouchableOpacity>
+            </View>
+          )}
 
           {/* Daily Prompt Card */}
           <View style={{ marginTop: 20 }}>

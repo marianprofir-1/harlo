@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useState, type ComponentProps } from 'react';
 import { Tabs } from 'expo-router';
 import { useColorScheme } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
@@ -6,10 +6,24 @@ import { Ionicons } from '@expo/vector-icons';
 import { colors } from '../../constants/colors';
 import { KEYS } from '../../lib/storage';
 import { HarloSessionProvider } from '../../contexts/HarloSession';
+import { getYesterdayMemory, buildMemoryContext } from '../../lib/memory';
+import { loadContent, getDailyPrompt } from '../../lib/content';
 
-type IoniconName = React.ComponentProps<typeof Ionicons>['name'];
+type IoniconName = ComponentProps<typeof Ionicons>['name'];
 
-function buildOnboardingContext(answers: Record<string, string>): string {
+async function getDayNumber(): Promise<number> {
+  try {
+    const stored = await AsyncStorage.getItem(KEYS.FIRST_OPEN_DATE);
+    if (!stored) return 1;
+    const start = new Date(stored);
+    const startDay = new Date(start.getFullYear(), start.getMonth(), start.getDate());
+    const now = new Date();
+    const nowDay = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+    return Math.floor((nowDay.getTime() - startDay.getTime()) / (1000 * 60 * 60 * 24)) + 1;
+  } catch { return 1; }
+}
+
+function buildOnboardingPart(answers: Record<string, string>): string {
   const parts: string[] = [];
   if (answers.whenLeft) parts.push(`Child left home: ${answers.whenLeft}`);
   if (answers.currentFeeling) parts.push(`Current feeling: ${answers.currentFeeling}`);
@@ -22,22 +36,48 @@ export default function TabLayout() {
   const theme = colors[scheme === 'dark' ? 'dark' : 'light'];
 
   const [onboardingContext, setOnboardingContext] = useState<string | undefined>(undefined);
+  const [tomorrowQuestion, setTomorrowQuestion] = useState<string | null>(null);
+  const [dayNumber, setDayNumber] = useState(1);
 
   useEffect(() => {
-    AsyncStorage.getItem(KEYS.ONBOARDING_ANSWERS).then(raw => {
-      if (raw) {
-        try {
-          const answers = JSON.parse(raw) as Record<string, string>;
-          setOnboardingContext(buildOnboardingContext(answers));
-        } catch {
-          // ignore parse errors
+    async function loadContext() {
+      try {
+        const [day, answersRaw, content, memory] = await Promise.all([
+          getDayNumber(),
+          AsyncStorage.getItem(KEYS.ONBOARDING_ANSWERS),
+          loadContent(),
+          getYesterdayMemory(),
+        ]);
+
+        setDayNumber(day);
+        setTomorrowQuestion(getDailyPrompt(content, day + 1));
+
+        const parts: string[] = [];
+
+        if (answersRaw) {
+          try {
+            const answers = JSON.parse(answersRaw) as Record<string, string>;
+            const onboarding = buildOnboardingPart(answers);
+            if (onboarding) parts.push(onboarding);
+          } catch { /* ignore */ }
         }
-      }
-    });
+
+        const memCtx = buildMemoryContext(memory, day);
+        if (memCtx) parts.push(memCtx);
+
+        setOnboardingContext(parts.join('\n\n') || undefined);
+      } catch { /* context won't be personalized — non-critical */ }
+    }
+
+    loadContext();
   }, []);
 
   return (
-    <HarloSessionProvider onboardingContext={onboardingContext}>
+    <HarloSessionProvider
+      onboardingContext={onboardingContext}
+      tomorrowQuestion={tomorrowQuestion}
+      dayNumber={dayNumber}
+    >
       <Tabs
         screenOptions={{
           headerShown: false,

@@ -9,7 +9,8 @@ import { getOrCreateDeviceId } from '../lib/identity';
 import { initStorage, KEYS } from '../lib/storage';
 import { initAnalytics, trackEvent } from '../lib/analytics';
 import { initRevenueCat, checkAccess } from '../lib/revenuecat';
-import { requestNotificationPermission, scheduleDefaultNotifications } from '../lib/notifications';
+import { requestNotificationPermission, scheduleDefaultNotifications, trackOpenTime } from '../lib/notifications';
+import { updateAndGetStreak } from '../lib/streak';
 
 // Sync system color-scheme preference to the `dark` class on <html>.
 // Required because tailwind.config.js uses darkMode: 'class', which avoids a
@@ -37,6 +38,10 @@ function RootNavigator() {
         setDeviceId(id);
         await initAnalytics(id);
         trackEvent('app_opened');
+
+        // Track open time for notification personalization + update streak
+        void trackOpenTime();
+        void updateAndGetStreak();
 
         const done = await AsyncStorage.getItem(KEYS.ONBOARDING_COMPLETE);
         if (!done) {

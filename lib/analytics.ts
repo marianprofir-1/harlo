@@ -20,6 +20,7 @@ export type HarloEvent =
   | 'mood_check_completed'        // { score: 1-5 } — no context
   | 'notification_permission_granted'
   | 'notification_permission_denied'
+  | 'session_continued'           // { extension: 1 | 2 }
   | 'data_deletion_requested';
 
 let posthog: PostHog | null = null;
