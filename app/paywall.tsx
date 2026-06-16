@@ -104,7 +104,7 @@ export default function PaywallScreen() {
         >
           {completedTrial
             ? "You've shown up for yourself\n7 days in a row."
-            : 'Keep going with Harlo.'}
+            : 'Start your 7-day\nfree trial.'}
         </Text>
         <Text
           style={{
@@ -117,7 +117,7 @@ export default function PaywallScreen() {
         >
           {completedTrial
             ? 'Continue your journey with a subscription.'
-            : 'A quiet companion for whenever you need one.'}
+            : 'No card required. Cancel anytime.'}
         </Text>
 
         {/* Annual option */}
@@ -135,8 +135,13 @@ export default function PaywallScreen() {
         >
           <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
             <View>
-              <Text style={{ color: '#FFFFFF', fontSize: 16, fontWeight: '700' }}>
-                {annualPkg?.product.priceString ?? '$47.99'} / year
+              {!completedTrial && (
+                <Text style={{ color: '#FFFFFF', fontSize: 17, fontWeight: '700', marginBottom: 2 }}>
+                  7 days free
+                </Text>
+              )}
+              <Text style={{ color: completedTrial ? '#FFFFFF' : 'rgba(255,255,255,0.85)', fontSize: completedTrial ? 16 : 14, fontWeight: completedTrial ? '700' : '400' }}>
+                {completedTrial ? '' : 'then '}{annualPkg?.product.priceString ?? '$47.99'} / year
               </Text>
               <Text style={{ color: 'rgba(255,255,255,0.8)', fontSize: 13, marginTop: 2 }}>
                 $4 / month · Save 43%
@@ -171,6 +176,18 @@ export default function PaywallScreen() {
             opacity: !monthlyPkg ? 0.6 : 1,
           }}
         >
+          {!completedTrial && (
+            <Text
+              style={{
+                color: theme.brandPrimary,
+                fontSize: 13,
+                textAlign: 'center',
+                marginBottom: 2,
+              }}
+            >
+              7 days free, then
+            </Text>
+          )}
           <Text
             style={{
               color: theme.brandPrimary,
@@ -191,7 +208,9 @@ export default function PaywallScreen() {
             marginBottom: 28,
           }}
         >
-          Cancel anytime. No questions asked.
+          {completedTrial
+            ? 'Cancel anytime. No questions asked.'
+            : 'No charge until your trial ends. Cancel anytime.'}
         </Text>
 
         {loading && (
