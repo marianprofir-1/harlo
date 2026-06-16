@@ -8,10 +8,10 @@
     "userInterfaceStyle": "automatic",
     "ios": {
       "supportsTablet": true,
-      "bundleIdentifier": "com.harlo.app"
+      "bundleIdentifier": "com.marianpro.harlo"
     },
     "android": {
-      "package": "com.harlo.app",
+      "package": "com.marianpro.harlo",
       "minSdkVersion": 26,
       "adaptiveIcon": {
         "backgroundColor": "#E6F4FE",
